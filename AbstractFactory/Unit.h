@@ -12,8 +12,7 @@ public:
     virtual void add( const std::shared_ptr< Unit >& , Flags ) {
         throw std::runtime_error( "Not supported" );
     }
-    virtual std::string compile( unsigned int level = 0 ) const =
-        0;
+    virtual std::string compile( unsigned int level = 0 ) const = 0;
 protected:
     virtual std::string generateShift( unsigned int level ) const
     {
@@ -26,7 +25,7 @@ protected:
     }
 };
 
-// класс нашего класса
+
 class IClassUnit : public Unit
 {
 public:
@@ -50,6 +49,59 @@ public:
         }
         m_fields[ accessModifier ].push_back( unit );
     }
+
+protected:
+    std::string m_name;
+    using Fields = std::vector< std::shared_ptr< Unit > >;
+    std::vector< Fields > m_fields; // вектор из 3 векторов
+}; // Выводится в консоль начиная с public функций, заканчивая private (можно поменять)
+const std::vector< std::string > IClassUnit::ACCESS_MODIFIERS = { "public", "protected", "private" };
+
+class IMethodUnit : public Unit
+{
+public:
+    enum Modifier { // Перечисление (битовые флаги)
+        STATIC = 1,
+        CONST = 1 << 1,
+        VIRTUAL = 1 << 2,
+        FINAL = 1 << 3,
+        ABSTRACT = 1 << 4,
+        PUBLIC = 1 << 5,
+        PROTECTED = 1 << 6,
+        PRIVATE = 1 << 7,
+        INTERNAL = 1 << 8
+    };
+public:
+    IMethodUnit( const std::string& name, const std::string& returnType, Flags flags ) :
+        m_name( name ), m_returnType( returnType ), m_flags( flags ) { }
+    // добваить в метод другие методы
+    // Flags - не знаю зачем нужен. Ни на что не влияет (можно удалить)
+    void add( const std::shared_ptr< Unit >& unit, Flags /* flags */ = 0 ) {
+        m_body.push_back( unit );
+    }
+
+protected:
+    std::string m_name;
+    std::string m_returnType;
+    Flags m_flags;
+    std::vector< std::shared_ptr< Unit > > m_body;
+};
+
+class IPrintUnit : public Unit
+{
+public:
+    explicit IPrintUnit( const std::string& text ) : m_text( text ) { }
+protected:
+    std::string m_text;
+};
+
+
+
+class CClassUnit : public IClassUnit
+{
+public:
+    CClassUnit(const std::string& name)
+        : IClassUnit(name){}
     // level - количестов отступов level * shift
     std::string compile( unsigned int level = 0 ) const
     {
@@ -66,18 +118,12 @@ public:
             }
             result += "\n"; // после обхода вектора в конце отступ
         }
-        result += generateShift( level ) + "};\n"; // в самом конце класса отступ
+        result += generateShift( level ) + "};\n\n"; // в самом конце класса отступ
         return result;
     }
-protected:
-    std::string m_name;
-    using Fields = std::vector< std::shared_ptr< Unit > >;
-    std::vector< Fields > m_fields; // вектор из 3 векторов
-}; // Выводится в консоль начиная с public функций, заканчивая private (можно поменять)
-const std::vector< std::string > IClassUnit::ACCESS_MODIFIERS = { "public", "protected", "private" };
+};
 
-
-class IMethodUnit : public Unit
+class CMethodUnit : public IMethodUnit
 {
 public:
     enum Modifier { // Перечисление (битовые флаги)
@@ -86,13 +132,8 @@ public:
         VIRTUAL = 1 << 2
     };
 public:
-    IMethodUnit( const std::string& name, const std::string& returnType, Flags flags ) :
-        m_name( name ), m_returnType( returnType ), m_flags( flags ) { }
-    // добваить в метод другие методы
-    // Flags - не знаю зачем нужен. Ни на что не влияет (можно удалить)
-    void add( const std::shared_ptr< Unit >& unit, Flags /* flags */ = 0 ) {
-        m_body.push_back( unit );
-    }
+    CMethodUnit(const std::string& name, const std::string& returnType, Flags flags)
+        : IMethodUnit(name, returnType, flags){}
     // вывести метод
     std::string compile( unsigned int level = 0 ) const {
         std::string result = generateShift( level );
@@ -120,59 +161,204 @@ public:
         result += generateShift( level ) + "}\n";
         return result;
     }
-protected:
-    std::string m_name;
-    std::string m_returnType;
-    Flags m_flags;
-    std::vector< std::shared_ptr< Unit > > m_body;
 };
-
-
-
-class IPrintUnit : public Unit
-{
-public:
-    explicit IPrintUnit( const std::string& text ) : m_text( text ) { }
-    std::string compile( unsigned int level = 0 ) const {
-        return generateShift( level ) + "printf( \"" + m_text + "\" );\n";
-    }
-protected:
-    std::string m_text;
-};
-
-
-class CClassUnit : public IClassUnit
-{
-public:
-    CClassUnit(const std::string& name)
-        : IClassUnit(name){}
-};
-
-
-class CMethodUnit : public IMethodUnit
-{
-public:
-    CMethodUnit(const std::string& name, const std::string& returnType, Flags flags) :
-        IMethodUnit(name, returnType, flags){}
-};
-
 
 class CPrintUnit : public IPrintUnit
 {
 public:
     CPrintUnit( const std::string& text )
         : IPrintUnit(text){}
+    std::string compile(unsigned int level = 0) const {
+        return generateShift( level ) + "printf( \"" + m_text + "\" );\n";
+    }
 };
+
+
+
+class JavaClassUnit : public IClassUnit
+{
+public:
+    JavaClassUnit(const std::string& name)
+        : IClassUnit(name){}
+    // level - количестов отступов level * shift
+    std::string compile( unsigned int level = 0 ) const
+    {
+        std::string result = generateShift( level ) + "class " + m_name + " {\n";
+        for( size_t i = 0; i < ACCESS_MODIFIERS.size(); ++i ) {
+            if( m_fields[ i ].empty() ) {
+                continue; // если вектор пуст пропускаем, идем на следующий
+            }
+            for( const auto& f : m_fields[ i ] ) { // идем по элементам вектора
+                // f это MethodUnit использует compile из класса MethodUnit
+                result += f->compile( level + 1 );
+            }
+            //result += "\n"; // после обхода вектора в конце отступ
+        }
+        result += generateShift( level ) + "};\n\n"; // в самом конце класса отступ
+        return result;
+    }
+};
+
+class JavaMethodUnit : public IMethodUnit
+{
+public:
+    enum Modifier { // Перечисление (битовые флаги)
+        STATIC = 1,
+        FINAL = 1 << 3,
+        ABSTRACT = 1 << 4,
+        PUBLIC = 1 << 5,
+        PROTECTED = 1 << 6,
+        PRIVATE = 1 << 7
+    };
+public:
+    JavaMethodUnit(const std::string& name, const std::string& returnType, Unit::Flags flags)
+        : IMethodUnit(name, returnType, flags){}
+    // вывести метод
+    std::string compile( unsigned int level = 0 ) const {
+        std::string result = generateShift( level );
+        // Если флаг совпадает, добавляем
+        if (m_flags & PUBLIC) {
+            result += "public ";
+        } else if (m_flags & PROTECTED) {
+            result += "protected ";
+        } else if (m_flags & PRIVATE) {
+            result += "private ";
+        }
+
+        if( m_flags & STATIC ) {
+            result += "static ";
+        } else if( m_flags & FINAL ) {
+            result += "final ";
+        } else if (m_flags & ABSTRACT) {
+            result += "abstract ";
+        }
+
+        result += m_returnType + " "; // Тип метода
+        result += m_name + "()"; // Имя метода
+
+        result += " {\n";
+        // Если в метод добавили ещё метод (проходим по телу метода)
+        for( const auto& b : m_body ) {
+            // b - MethodUnit | PrintOperatorUnit
+            // Отступ увеличили на один shift
+            result += b->compile( level + 1 );
+        }
+        result += generateShift( level ) + "}\n";
+        return result;
+    }
+};
+
+class JavaPrintUnit : public IPrintUnit
+{
+public:
+    JavaPrintUnit(const std::string& text)
+        : IPrintUnit(text){}
+    std::string compile( unsigned int level = 0 ) const
+    {
+        return generateShift(level) + "System.out.println( \"" + m_text + "\" );\n";
+    }
+};
+
+
+
+class SharpClassUnit : public IClassUnit
+{
+public:
+    SharpClassUnit(const std::string& name)
+        : IClassUnit(name){}
+    // level - количестов отступов level * shift
+    std::string compile( unsigned int level = 0 ) const
+    {
+        std::string result = generateShift( level ) + "class " + m_name + " {\n";
+        for( size_t i = 0; i < ACCESS_MODIFIERS.size(); ++i ) {
+            if( m_fields[ i ].empty() ) {
+                continue; // если вектор пуст пропускаем, идем на следующий
+            }
+            for( const auto& f : m_fields[ i ] ) { // идем по элементам вектора
+                // f это MethodUnit использует compile из класса MethodUnit
+                result += f->compile( level + 1 );
+            }
+        }
+        result += generateShift( level ) + "};\n\n"; // в самом конце класса отступ
+        return result;
+    }
+};
+
+class SharpMethodUnit : public IMethodUnit
+{
+public:
+    enum Modifier { // Перечисление (битовые флаги)
+        STATIC = 1,
+        CONST = 1 << 1,
+        VIRTUAL = 1 << 2,
+        PUBLIC = 1 << 5,
+        PROTECTED = 1 << 6,
+        PRIVATE = 1 << 7,
+        INTERNAL = 1 << 8
+    };
+public:
+    SharpMethodUnit(const std::string& name, const std::string& returnType, Unit::Flags flags)
+        : IMethodUnit(name, returnType, flags){}
+    // вывести метод
+    std::string compile( unsigned int level = 0 ) const {
+        std::string result = generateShift( level );
+        // Если флаг совпадает, добавляем
+        if (m_flags & PUBLIC) {
+            result += "public ";
+        } else {
+            if (m_flags & PROTECTED) {
+                result += "protected ";
+            }
+
+            if (m_flags & PRIVATE) {
+                result += "private ";
+            } else if (m_flags & INTERNAL) {
+                result += "internal ";
+            }
+        }
+
+        if( m_flags & STATIC ) {
+            result += "static ";
+        } else if( m_flags & CONST ) {
+            result += "const ";
+        } else if (m_flags & VIRTUAL) {
+            result += "virtual ";
+        }
+        result += m_returnType + " "; // Тип метода
+        result += m_name + "()"; // Имя метода
+
+        result += " {\n";
+        // Если в метод добавили ещё метод (проходим по телу метода)
+        for( const auto& b : m_body ) {
+            // b - MethodUnit | PrintOperatorUnit
+            // Отступ увеличили на один shift
+            result += b->compile( level + 1 );
+        }
+        result += generateShift( level ) + "}\n";
+        return result;
+    }
+};
+
+class SharpPrintUnit : public IPrintUnit
+{
+public:
+    SharpPrintUnit(const std::string& text)
+        : IPrintUnit(text){}
+    std::string compile( unsigned int level = 0 ) const
+    {
+        return generateShift(level) + "Console.WriteLine( $\"" + m_text + "\" );\n";
+    }
+};
+
 
 
 class IFactory
 {
 public:
     virtual std::shared_ptr<IClassUnit> getClass( const std::string& name ) = 0;
-    virtual std::shared_ptr<IMethodUnit> getMethod( const std::string& name, const std::string& returnType, Unit::Flags flags ) = 0;
+    virtual std::shared_ptr<IMethodUnit> getMethod( const std::string& name, const std::string& returnType ,Unit::Flags flags ) = 0;
     virtual std::shared_ptr<IPrintUnit> getPrintUnit( const std::string& text ) = 0;
 };
-
 
 class CFactory : public IFactory
 {
@@ -188,6 +374,40 @@ public:
     std::shared_ptr<IPrintUnit> getPrintUnit( const std::string &text )
     {
         return std::shared_ptr<IPrintUnit>(new CPrintUnit(text));
+    }
+};
+
+class JavaFactory : public IFactory
+{
+public:
+    std::shared_ptr<IClassUnit> getClass( const std::string& name )
+    {
+        return std::shared_ptr<IClassUnit>(new JavaClassUnit(name));
+    }
+    std::shared_ptr<IMethodUnit> getMethod( const std::string &name, const std::string &returnType, Unit::Flags flags )
+    {
+        return std::shared_ptr<IMethodUnit>(new JavaMethodUnit(name, returnType, flags));
+    }
+    std::shared_ptr<IPrintUnit> getPrintUnit( const std::string &text )
+    {
+        return std::shared_ptr<IPrintUnit>(new JavaPrintUnit(text));
+    }
+};
+
+class SharpFactory : public IFactory
+{
+public:
+    std::shared_ptr<IClassUnit> getClass( const std::string& name )
+    {
+        return std::shared_ptr<IClassUnit>(new SharpClassUnit(name));
+    }
+    std::shared_ptr<IMethodUnit> getMethod( const std::string &name, const std::string &returnType, Unit::Flags flags )
+    {
+        return std::shared_ptr<IMethodUnit>(new SharpMethodUnit(name, returnType, flags));
+    }
+    std::shared_ptr<IPrintUnit> getPrintUnit( const std::string &text )
+    {
+        return std::shared_ptr<IPrintUnit>(new SharpPrintUnit(text));
     }
 };
 
