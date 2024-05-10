@@ -27,7 +27,7 @@ protected:
 };
 
 // класс нашего класса
-class ClassUnit : public Unit
+class IClassUnit : public Unit
 {
 public:
     enum AccessModifier { // Перечисление (определение типов)
@@ -38,7 +38,7 @@ public:
     static const std::vector< std::string > ACCESS_MODIFIERS;
 public:
     // explicit - запрещает неявные преобразования
-    explicit ClassUnit( const std::string& name ) : m_name( name ) {
+    explicit IClassUnit( const std::string& name ) : m_name( name ) {
         m_fields.resize( ACCESS_MODIFIERS.size() );
     }
     // Flags - переобозначили (unsigned int)
@@ -69,15 +69,16 @@ public:
         result += generateShift( level ) + "};\n"; // в самом конце класса отступ
         return result;
     }
-private:
+protected:
     std::string m_name;
     using Fields = std::vector< std::shared_ptr< Unit > >;
     std::vector< Fields > m_fields; // вектор из 3 векторов
 }; // Выводится в консоль начиная с public функций, заканчивая private (можно поменять)
-const std::vector< std::string > ClassUnit::ACCESS_MODIFIERS = { "public", "protected", "private" };
+const std::vector< std::string > IClassUnit::ACCESS_MODIFIERS = { "public", "protected", "private" };
 
-// Класс функций (методов)
-class MethodUnit : public Unit {
+
+class IMethodUnit : public Unit
+{
 public:
     enum Modifier { // Перечисление (битовые флаги)
         STATIC = 1,
@@ -85,7 +86,7 @@ public:
         VIRTUAL = 1 << 2
     };
 public:
-    MethodUnit( const std::string& name, const std::string& returnType, Flags flags ) :
+    IMethodUnit( const std::string& name, const std::string& returnType, Flags flags ) :
         m_name( name ), m_returnType( returnType ), m_flags( flags ) { }
     // добваить в метод другие методы
     // Flags - не знаю зачем нужен. Ни на что не влияет (можно удалить)
@@ -119,23 +120,75 @@ public:
         result += generateShift( level ) + "}\n";
         return result;
     }
-private:
+protected:
     std::string m_name;
     std::string m_returnType;
     Flags m_flags;
     std::vector< std::shared_ptr< Unit > > m_body;
 };
 
-// Добавляет в метод описание printf("text")
-class PrintOperatorUnit : public Unit {
+
+
+class IPrintUnit : public Unit
+{
 public:
-    explicit PrintOperatorUnit( const std::string& text ) : m_text( text ) { }
+    explicit IPrintUnit( const std::string& text ) : m_text( text ) { }
     std::string compile( unsigned int level = 0 ) const {
         return generateShift( level ) + "printf( \"" + m_text + "\" );\n";
     }
-private:
+protected:
     std::string m_text;
 };
 
+
+class CClassUnit : public IClassUnit
+{
+public:
+    CClassUnit(const std::string& name)
+        : IClassUnit(name){}
+};
+
+
+class CMethodUnit : public IMethodUnit
+{
+public:
+    CMethodUnit(const std::string& name, const std::string& returnType, Flags flags) :
+        IMethodUnit(name, returnType, flags){}
+};
+
+
+class CPrintUnit : public IPrintUnit
+{
+public:
+    CPrintUnit( const std::string& text )
+        : IPrintUnit(text){}
+};
+
+
+class IFactory
+{
+public:
+    virtual std::shared_ptr<IClassUnit> getClass( const std::string& name ) = 0;
+    virtual std::shared_ptr<IMethodUnit> getMethod( const std::string& name, const std::string& returnType, Unit::Flags flags ) = 0;
+    virtual std::shared_ptr<IPrintUnit> getPrintUnit( const std::string& text ) = 0;
+};
+
+
+class CFactory : public IFactory
+{
+public:
+    std::shared_ptr<IClassUnit> getClass( const std::string& name )
+    {
+        return std::shared_ptr<IClassUnit>(new CClassUnit(name));
+    }
+    std::shared_ptr<IMethodUnit> getMethod( const std::string &name, const std::string &returnType, Unit::Flags flags )
+    {
+        return std::shared_ptr<IMethodUnit>(new CMethodUnit(name, returnType, flags));
+    }
+    std::shared_ptr<IPrintUnit> getPrintUnit( const std::string &text )
+    {
+        return std::shared_ptr<IPrintUnit>(new CPrintUnit(text));
+    }
+};
 
 #endif // UNIT_H
